@@ -38,9 +38,6 @@ SOFTWARE.
 #include "../inc/ble_services_manager.h"
 #include "../inc/led_if.h"
 #include "../inc/pm_if.h"
-#ifdef CONFIG_USE_SD
-#include "sd_if.h"
-#endif
 #include "../inc/hdc1080_if.h"
 #include "esp_ota_ops.h"
 
@@ -111,6 +108,7 @@ void data_task()
 
 		pkt = malloc(MQTT_PKT_LEN);
 
+		ble_pms_notification(pm_dat);
 		//
 		// Send data over MQTT
 		//
@@ -141,8 +139,6 @@ void app_main()
 	/* initialize flash memory */
 
 	APP_Initialize();
-	gpio_hold_dis(GPIO_NUM_4);
-	gpio_hold_dis(GPIO_NUM_21);
 
 	printf("\nMAC Address: %s\n\n", DEVICE_MAC);
 	ESP_LOGW(TAG, "Waking up");

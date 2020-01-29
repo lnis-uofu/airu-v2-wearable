@@ -11,21 +11,23 @@
 #include <stdlib.h>
 #include <string.h>
 
-
+#define PMS_NOTIFICATION 0x01
 /* Attributes State Machine */
 enum
 {
     IDX_SVC,
-    IDX_CHAR_A,
-    IDX_CHAR_VAL_A,
-    IDX_CHAR_CFG_A,
+    IDX_CHAR_PMS,
+    IDX_CHAR_PMS_VAL,
+    IDX_CHAR_PMS_CFG,
 
     IDX_CHAR_B,
     IDX_CHAR_VAL_B,
 
-    IDX_CHAR_C,
-    IDX_CHAR_VAL_C,
+    IDX_CHAR_PMS_REQUEST,
+    IDX_CHAR_PMS_REQUEST_VAL,
 
     HRS_IDX_NB,
 };
+
 void initialize_ble();
+void ble_pms_notification();

@@ -12,7 +12,7 @@
 #include "esp_err.h"
 
 #define PM_UART_CH   UART_NUM_2
-#define PM_RXD_PIN   16
+#define PM_RXD_PIN   13
 #define PM_TXD_PIN   17
 #define BUF_SIZE     144 // NOTE: Rx_buffer_size should be greater than UART_FIFO_LEN (128 bytes)
 #define PM_PKT_LEN   24

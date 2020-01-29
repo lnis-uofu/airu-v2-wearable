@@ -32,6 +32,7 @@
 #include "esp_bt_main.h"
 #include "esp_gatt_common_api.h"
 #include "../inc/app_utils.h"
+#include "../inc/pm_if.h"
 
 #define GATTS_TABLE_TAG "GATTS_TABLE_DEMO"
 
@@ -53,8 +54,13 @@
 
 static uint8_t adv_config_done       = 0;
 
-uint16_t heart_rate_handle_table[HRS_IDX_NB];
-
+uint16_t pms_ble_handle_table[HRS_IDX_NB];
+/*
+ * Manage devices connected to this BLE hotspot
+ * Initialize with an array of '\0'
+ *
+ * */
+int16_t ble_connection_ids[CONFIG_BTDM_CONTROLLER_BLE_MAX_CONN] = {0};
 typedef struct {
     uint8_t                 *prepare_buf;
     int                     prepare_len;
@@ -164,7 +170,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event,
 					esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
 
 /* One gatt-based profile one app_id and one gatts_if, this array will store the gatts_if returned by ESP_GATTS_REG_EVT */
-static struct gatts_profile_inst heart_rate_profile_tab[PROFILE_NUM] = {
+static struct gatts_profile_inst pms_profile_tab[PROFILE_NUM] = {
     [PROFILE_APP_IDX] = {
         .gatts_cb = gatts_profile_event_handler,
         .gatts_if = ESP_GATT_IF_NONE,       /* Not get the gatt_if, so initial is ESP_GATT_IF_NONE */
@@ -196,17 +202,17 @@ static const esp_gatts_attr_db_t gatt_db[HRS_IDX_NB] =
       sizeof(uint16_t), sizeof(GATTS_SERVICE_UUID_TEST), (uint8_t *)&GATTS_SERVICE_UUID_TEST}},
 
     /* Characteristic Declaration */
-    [IDX_CHAR_A]     =
+    [IDX_CHAR_PMS]     =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&character_declaration_uuid, ESP_GATT_PERM_READ,
       CHAR_DECLARATION_SIZE, CHAR_DECLARATION_SIZE, (uint8_t *)&char_prop_read_write_notify}},
 
     /* Characteristic Value */
-    [IDX_CHAR_VAL_A] =
-    {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&GATTS_CHAR_UUID_TEST_A, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
+    [IDX_CHAR_PMS_VAL] =
+    {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&GATTS_CHAR_UUID_TEST_A, ESP_GATT_PERM_READ,
       GATTS_DEMO_CHAR_VAL_LEN_MAX, sizeof(char_value), (uint8_t *)char_value}},
 
     /* Client Characteristic Configuration Descriptor */
-    [IDX_CHAR_CFG_A]  =
+    [IDX_CHAR_PMS_CFG]  =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&character_client_config_uuid, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
       sizeof(uint16_t), sizeof(heart_measurement_ccc), (uint8_t *)heart_measurement_ccc}},
 
@@ -221,12 +227,12 @@ static const esp_gatts_attr_db_t gatt_db[HRS_IDX_NB] =
       GATTS_DEMO_CHAR_VAL_LEN_MAX, sizeof(char_value), (uint8_t *)char_value}},
 
     /* Characteristic Declaration */
-    [IDX_CHAR_C]      =
+    [IDX_CHAR_PMS_REQUEST]      =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&character_declaration_uuid, ESP_GATT_PERM_READ,
       CHAR_DECLARATION_SIZE, CHAR_DECLARATION_SIZE, (uint8_t *)&char_prop_write}},
 
     /* Characteristic Value */
-    [IDX_CHAR_VAL_C]  =
+    [IDX_CHAR_PMS_REQUEST_VAL]  =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&GATTS_CHAR_UUID_TEST_C, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
       GATTS_DEMO_CHAR_VAL_LEN_MAX, sizeof(char_value), (uint8_t *)char_value}},
 
@@ -362,7 +368,8 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                 ESP_LOGE(GATTS_TABLE_TAG, "set device name failed, error code = %x", set_dev_name_ret);
             }
     #ifdef CONFIG_SET_RAW_ADV_DATA
-            // Assign the last 4 wifi mac address to advertisement name
+            // Assign the last 4 wifi mac address to advertisement data - device will be show up as WAIR-xxxx
+            // With xxxx are last 4 characters of mac address
             raw_adv_data[18] = DEVICE_MAC[8];
             raw_adv_data[19] = DEVICE_MAC[9];
             raw_adv_data[20] = DEVICE_MAC[10];
@@ -406,28 +413,28 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                 // the data length of gattc write  must be less than GATTS_DEMO_CHAR_VAL_LEN_MAX.
                 ESP_LOGI(GATTS_TABLE_TAG, "GATT_WRITE_EVT, handle = %d, value len = %d, value :", param->write.handle, param->write.len);
                 esp_log_buffer_hex(GATTS_TABLE_TAG, param->write.value, param->write.len);
-                if (heart_rate_handle_table[IDX_CHAR_CFG_A] == param->write.handle && param->write.len == 2){
+                if (pms_ble_handle_table[IDX_CHAR_PMS_CFG] == param->write.handle && param->write.len == 2){
                     uint16_t descr_value = param->write.value[1]<<8 | param->write.value[0];
                     if (descr_value == 0x0001){
                         ESP_LOGI(GATTS_TABLE_TAG, "notify enable");
-                        uint8_t notify_data[15];
-                        for (int i = 0; i < sizeof(notify_data); ++i)
-                        {
-                            notify_data[i] = i % 0xff;
-                        }
-                        //the size of notify_data[] need less than MTU size
-                        esp_ble_gatts_send_indicate(gatts_if, param->write.conn_id, heart_rate_handle_table[IDX_CHAR_VAL_A],
-                                                sizeof(notify_data), notify_data, false);
+//                        uint8_t notify_data[15];
+//                        for (int i = 0; i < sizeof(notify_data); ++i)
+//                        {
+//                            notify_data[i] = i % 0xff;
+//                        }
+//                        //the size of notify_data[] need less than MTU size
+//                        esp_ble_gatts_send_indicate(gatts_if, param->write.conn_id, pms_ble_handle_table[IDX_CHAR_PMS_VAL],
+//                                                sizeof(notify_data), notify_data, false);
                     }else if (descr_value == 0x0002){
                         ESP_LOGI(GATTS_TABLE_TAG, "indicate enable");
-                        uint8_t indicate_data[15];
-                        for (int i = 0; i < sizeof(indicate_data); ++i)
-                        {
-                            indicate_data[i] = i % 0xff;
-                        }
-                        //the size of indicate_data[] need less than MTU size
-                        esp_ble_gatts_send_indicate(gatts_if, param->write.conn_id, heart_rate_handle_table[IDX_CHAR_VAL_A],
-                                            sizeof(indicate_data), indicate_data, true);
+//                        uint8_t indicate_data[15];
+//                        for (int i = 0; i < sizeof(indicate_data); ++i)
+//                        {
+//                            indicate_data[i] = i % 0xff;
+//                        }
+//                        //the size of indicate_data[] need less than MTU size
+//                        esp_ble_gatts_send_indicate(gatts_if, param->write.conn_id, pms_ble_handle_table[IDX_CHAR_PMS_VAL],
+//                                            sizeof(indicate_data), indicate_data, true);
                     }
                     else if (descr_value == 0x0000){
                         ESP_LOGI(GATTS_TABLE_TAG, "notify/indicate disable ");
@@ -437,12 +444,19 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                     }
 
                 }
-                else if (heart_rate_handle_table[IDX_CHAR_VAL_C] == param->write.handle)
+                else if (pms_ble_handle_table[IDX_CHAR_PMS_REQUEST_VAL] == param->write.handle)
                 {
                     ESP_LOGI(GATTS_TABLE_TAG, "Write characteristic C and change change A value");
-                    esp_ble_gatts_set_attr_value(heart_rate_handle_table[IDX_CHAR_VAL_A], param->write.len, param->write.value);
-                    esp_ble_gatts_send_indicate(gatts_if, param->write.conn_id, heart_rate_handle_table[IDX_CHAR_VAL_A],
-                    		param->write.len, param->write.value, false);
+                	pm_data_t pm_dat;
+                	PMS_Poll(&pm_dat);
+                	char *pkt;
+            		pkt = malloc(48);
+            		sprintf(pkt, "{PM1:%.2f,PM25:%.2f,PM10:%.2f}",pm_dat.pm1, pm_dat.pm2_5, pm_dat.pm10);
+            		printf("pkt: %s\ngatts_if: %d\n", pkt, gatts_if);
+            		printf("COnnection ID: %d\n", param->write.conn_id);
+                    esp_ble_gatts_set_attr_value(pms_ble_handle_table[IDX_CHAR_PMS_VAL], strlen(pkt), (uint8_t*)pkt);
+                    esp_ble_gatts_send_indicate(gatts_if, param->write.conn_id, pms_ble_handle_table[IDX_CHAR_PMS_VAL],
+                    		strlen(pkt), (uint8_t*)pkt, false);
                 }
                 /* send response when param->write.need_rsp is true*/
                 if (param->write.need_rsp){
@@ -469,6 +483,17 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
             break;
         case ESP_GATTS_CONNECT_EVT:
             ESP_LOGI(GATTS_TABLE_TAG, "ESP_GATTS_CONNECT_EVT, conn_id = %d", param->connect.conn_id);
+            // Update the ble_connection_ids table
+            for(uint8_t count = 0; count < CONFIG_BTDM_CONTROLLER_BLE_MAX_CONN; count++)
+            {
+				printf("[%d]: %d\n", count, ble_connection_ids[count]);
+            	// This table is initialized with -1
+            	if (ble_connection_ids[count] == -1)
+            	{
+            		ble_connection_ids[count] = param->connect.conn_id;
+            		break;
+            	}
+            }
             esp_log_buffer_hex(GATTS_TABLE_TAG, param->connect.remote_bda, 6);
             esp_ble_conn_update_params_t conn_params = {0};
             memcpy(conn_params.bda, param->connect.remote_bda, sizeof(esp_bd_addr_t));
@@ -479,10 +504,21 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
             conn_params.timeout = 400;    // timeout = 400*10ms = 4000ms
             //start sent the update connection parameters to the peer device.
             esp_ble_gap_update_conn_params(&conn_params);
+
             break;
         case ESP_GATTS_DISCONNECT_EVT:
-            ESP_LOGI(GATTS_TABLE_TAG, "ESP_GATTS_DISCONNECT_EVT, reason = 0x%x", param->disconnect.reason);
+            ESP_LOGI(GATTS_TABLE_TAG, "ESP_GATTS_DISCONNECT_EVT, reason = 0x%x, id = %d", param->disconnect.reason, param->disconnect.conn_id);
             esp_ble_gap_start_advertising(&adv_params);
+            // Remove ID from the ble_connection_ids table
+            for(uint8_t count = 0; count < CONFIG_BTDM_CONTROLLER_BLE_MAX_CONN; count++)
+            {
+            	// This table is initialized with '\0'
+            	if (ble_connection_ids[count] == param->disconnect.conn_id)
+            	{
+            		ble_connection_ids[count] = -1;
+            		break;
+            	}
+            }
             break;
         case ESP_GATTS_CREAT_ATTR_TAB_EVT:{
             if (param->add_attr_tab.status != ESP_GATT_OK){
@@ -494,8 +530,8 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
             }
             else {
                 ESP_LOGI(GATTS_TABLE_TAG, "create attribute table successfully, the number handle = %d\n",param->add_attr_tab.num_handle);
-                memcpy(heart_rate_handle_table, param->add_attr_tab.handles, sizeof(heart_rate_handle_table));
-                esp_ble_gatts_start_service(heart_rate_handle_table[IDX_SVC]);
+                memcpy(pms_ble_handle_table, param->add_attr_tab.handles, sizeof(pms_ble_handle_table));
+                esp_ble_gatts_start_service(pms_ble_handle_table[IDX_SVC]);
             }
             break;
         }
@@ -519,7 +555,7 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
     /* If event is register event, store the gatts_if for each profile */
     if (event == ESP_GATTS_REG_EVT) {
         if (param->reg.status == ESP_GATT_OK) {
-            heart_rate_profile_tab[PROFILE_APP_IDX].gatts_if = gatts_if;
+            pms_profile_tab[PROFILE_APP_IDX].gatts_if = gatts_if;
         } else {
             ESP_LOGE(GATTS_TABLE_TAG, "reg app failed, app_id %04x, status %d",
                     param->reg.app_id,
@@ -531,9 +567,9 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
         int idx;
         for (idx = 0; idx < PROFILE_NUM; idx++) {
             /* ESP_GATT_IF_NONE, not specify a certain gatt_if, need to call every profile cb function */
-            if (gatts_if == ESP_GATT_IF_NONE || gatts_if == heart_rate_profile_tab[idx].gatts_if) {
-                if (heart_rate_profile_tab[idx].gatts_cb) {
-                    heart_rate_profile_tab[idx].gatts_cb(event, gatts_if, param);
+            if (gatts_if == ESP_GATT_IF_NONE || gatts_if == pms_profile_tab[idx].gatts_if) {
+                if (pms_profile_tab[idx].gatts_cb) {
+                    pms_profile_tab[idx].gatts_cb(event, gatts_if, param);
                 }
             }
         }
@@ -543,6 +579,7 @@ static void gatts_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_t gatts_
 void initialize_ble()
 {
     esp_err_t ret;
+    memset(ble_connection_ids, -1, sizeof(ble_connection_ids));
     ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
 
     esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
@@ -594,65 +631,24 @@ void initialize_ble()
     }
 }
 
-void app_main_unused()
+void ble_pms_notification(pm_data_t pm_dat)
 {
-    esp_err_t ret;
+	char *pkt;
+	pkt = malloc(33);
+	sprintf(pkt, "{PM1:%.2f,PM25:%.2f,PM10:%.2f}",pm_dat.pm1, pm_dat.pm2_5, pm_dat.pm10);
+	printf("pkt: %s\npms_profile_tab[PROFILE_APP_IDX].gatts_if: %d\n", pkt, pms_profile_tab[PROFILE_APP_IDX].gatts_if);
+    esp_ble_gatts_set_attr_value(pms_ble_handle_table[IDX_CHAR_PMS_VAL], strlen(pkt), (uint8_t*)pkt);
 
-    /* Initialize NVS. */
-    ret = nvs_flash_init();
-    if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_ERROR_CHECK(nvs_flash_erase());
-        ret = nvs_flash_init();
-    }
-    ESP_ERROR_CHECK( ret );
-
-    ESP_ERROR_CHECK(esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT));
-
-    esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-    ret = esp_bt_controller_init(&bt_cfg);
-    if (ret) {
-        ESP_LOGE(GATTS_TABLE_TAG, "%s enable controller failed: %s", __func__, esp_err_to_name(ret));
-        return;
-    }
-
-    ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
-    if (ret) {
-        ESP_LOGE(GATTS_TABLE_TAG, "%s enable controller failed: %s", __func__, esp_err_to_name(ret));
-        return;
-    }
-
-    ret = esp_bluedroid_init();
-    if (ret) {
-        ESP_LOGE(GATTS_TABLE_TAG, "%s init bluetooth failed: %s", __func__, esp_err_to_name(ret));
-        return;
-    }
-
-    ret = esp_bluedroid_enable();
-    if (ret) {
-        ESP_LOGE(GATTS_TABLE_TAG, "%s enable bluetooth failed: %s", __func__, esp_err_to_name(ret));
-        return;
-    }
-
-    ret = esp_ble_gatts_register_callback(gatts_event_handler);
-    if (ret){
-        ESP_LOGE(GATTS_TABLE_TAG, "gatts register error, error code = %x", ret);
-        return;
-    }
-
-    ret = esp_ble_gap_register_callback(gap_event_handler);
-    if (ret){
-        ESP_LOGE(GATTS_TABLE_TAG, "gap register error, error code = %x", ret);
-        return;
-    }
-
-    ret = esp_ble_gatts_app_register(ESP_APP_ID);
-    if (ret){
-        ESP_LOGE(GATTS_TABLE_TAG, "gatts app register error, error code = %x", ret);
-        return;
-    }
-
-    esp_err_t local_mtu_ret = esp_ble_gatt_set_local_mtu(500);
-    if (local_mtu_ret){
-        ESP_LOGE(GATTS_TABLE_TAG, "set local  MTU failed, error code = %x", local_mtu_ret);
+    // Broadcast to any connected device
+    for (uint8_t i = 0; i < CONFIG_BTDM_CONTROLLER_BLE_MAX_CONN; i++)
+    {
+    	if (ble_connection_ids[i] != -1)
+    	{
+    		printf("Sending package to connection id [%d]\n", ble_connection_ids[i]);
+    		uint8_t pms_notification = PMS_NOTIFICATION;
+			// Hardcoded app index PROFILE_APP_IDX
+			esp_ble_gatts_send_indicate(pms_profile_tab[PROFILE_APP_IDX].gatts_if, ble_connection_ids[i],
+					pms_ble_handle_table[IDX_CHAR_PMS_VAL], sizeof(pms_notification), &pms_notification, false);
+    	}
     }
 }
