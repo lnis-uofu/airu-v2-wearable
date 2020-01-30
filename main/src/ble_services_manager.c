@@ -451,7 +451,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                 	PMS_Poll(&pm_dat);
                 	char *pkt;
             		pkt = malloc(48);
-            		sprintf(pkt, "{PM1:%.2f,PM25:%.2f,PM10:%.2f}",pm_dat.pm1, pm_dat.pm2_5, pm_dat.pm10);
+            		sprintf(pkt, "{\"PM1\":%.2f,\"PM25\":%.2f,\"PM10\":%.2f}",pm_dat.pm1, pm_dat.pm2_5, pm_dat.pm10);
             		printf("pkt: %s\ngatts_if: %d\n", pkt, gatts_if);
             		printf("COnnection ID: %d\n", param->write.conn_id);
                     esp_ble_gatts_set_attr_value(pms_ble_handle_table[IDX_CHAR_PMS_VAL], strlen(pkt), (uint8_t*)pkt);
@@ -635,7 +635,8 @@ void ble_pms_notification(pm_data_t pm_dat)
 {
 	char *pkt;
 	pkt = malloc(33);
-	sprintf(pkt, "{PM1:%.2f,PM25:%.2f,PM10:%.2f}",pm_dat.pm1, pm_dat.pm2_5, pm_dat.pm10);
+	// Added double quote for JSON parsing in mobile app
+	sprintf(pkt, "{\"PM1\":%.2f,\"PM25\":%.2f,\"PM10\":%.2f}",pm_dat.pm1, pm_dat.pm2_5, pm_dat.pm10);
 	printf("pkt: %s\npms_profile_tab[PROFILE_APP_IDX].gatts_if: %d\n", pkt, pms_profile_tab[PROFILE_APP_IDX].gatts_if);
     esp_ble_gatts_set_attr_value(pms_ble_handle_table[IDX_CHAR_PMS_VAL], strlen(pkt), (uint8_t*)pkt);
 
