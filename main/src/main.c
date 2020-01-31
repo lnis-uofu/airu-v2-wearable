@@ -23,7 +23,7 @@ SOFTWARE.
 @author Thomas Becnel
 @author Trenton Taylor
 @author Quang Nguyen
-@brief Entry point for the ESP32 application.
+@brief Entry point for the ESP32 BLE application.
 */
 
 // Base necessary

@@ -45,13 +45,15 @@
 /* The max length of characteristic value. When the GATT client performs a write or prepare write operation,
 *  the data length must be less than GATTS_DEMO_CHAR_VAL_LEN_MAX. 
 */
-#define GATTS_DEMO_CHAR_VAL_LEN_MAX 500
+#define PMS_CHAR_VAL_LEN_MAX 500
 #define PREPARE_BUF_MAX_SIZE        1024
 #define CHAR_DECLARATION_SIZE       (sizeof(uint8_t))
 
 #define ADV_CONFIG_FLAG             (1 << 0)
 #define SCAN_RSP_CONFIG_FLAG        (1 << 1)
 
+#define PMS_BLE_PACKAGE_FORMAT		"{\"PM1\":%.2f,\"PM25\":%.2f,\"PM10\":%.2f}"
+//#define PMS_BLE_PACKAGE_FORMAT		"{PM1:%.2f,PM25:%.2f,PM10:%.2f}"
 static uint8_t adv_config_done       = 0;
 
 uint16_t pms_ble_handle_table[HRS_IDX_NB];
@@ -209,7 +211,7 @@ static const esp_gatts_attr_db_t gatt_db[HRS_IDX_NB] =
     /* Characteristic Value */
     [IDX_CHAR_PMS_VAL] =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&GATTS_CHAR_UUID_TEST_A, ESP_GATT_PERM_READ,
-      GATTS_DEMO_CHAR_VAL_LEN_MAX, sizeof(char_value), (uint8_t *)char_value}},
+      PMS_CHAR_VAL_LEN_MAX, sizeof(char_value), (uint8_t *)char_value}},
 
     /* Client Characteristic Configuration Descriptor */
     [IDX_CHAR_PMS_CFG]  =
@@ -224,7 +226,7 @@ static const esp_gatts_attr_db_t gatt_db[HRS_IDX_NB] =
     /* Characteristic Value */
     [IDX_CHAR_VAL_B]  =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&GATTS_CHAR_UUID_TEST_B, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
-      GATTS_DEMO_CHAR_VAL_LEN_MAX, sizeof(char_value), (uint8_t *)char_value}},
+      PMS_CHAR_VAL_LEN_MAX, sizeof(char_value), (uint8_t *)char_value}},
 
     /* Characteristic Declaration */
     [IDX_CHAR_PMS_REQUEST]      =
@@ -234,7 +236,7 @@ static const esp_gatts_attr_db_t gatt_db[HRS_IDX_NB] =
     /* Characteristic Value */
     [IDX_CHAR_PMS_REQUEST_VAL]  =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&GATTS_CHAR_UUID_TEST_C, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
-      GATTS_DEMO_CHAR_VAL_LEN_MAX, sizeof(char_value), (uint8_t *)char_value}},
+      PMS_CHAR_VAL_LEN_MAX, sizeof(char_value), (uint8_t *)char_value}},
 
 };
 
@@ -451,7 +453,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                 	PMS_Poll(&pm_dat);
                 	char *pkt;
             		pkt = malloc(48);
-            		sprintf(pkt, "{\"PM1\":%.2f,\"PM25\":%.2f,\"PM10\":%.2f}",pm_dat.pm1, pm_dat.pm2_5, pm_dat.pm10);
+            		sprintf(pkt, PMS_BLE_PACKAGE_FORMAT,pm_dat.pm1, pm_dat.pm2_5, pm_dat.pm10);
             		printf("pkt: %s\ngatts_if: %d\n", pkt, gatts_if);
             		printf("COnnection ID: %d\n", param->write.conn_id);
                     esp_ble_gatts_set_attr_value(pms_ble_handle_table[IDX_CHAR_PMS_VAL], strlen(pkt), (uint8_t*)pkt);
@@ -633,10 +635,9 @@ void initialize_ble()
 
 void ble_pms_notification(pm_data_t pm_dat)
 {
-	char *pkt;
-	pkt = malloc(33);
+	char pkt[PMS_CHAR_VAL_LEN_MAX];
 	// Added double quote for JSON parsing in mobile app
-	sprintf(pkt, "{\"PM1\":%.2f,\"PM25\":%.2f,\"PM10\":%.2f}",pm_dat.pm1, pm_dat.pm2_5, pm_dat.pm10);
+	sprintf(pkt, PMS_BLE_PACKAGE_FORMAT,pm_dat.pm1, pm_dat.pm2_5, pm_dat.pm10);
 	printf("pkt: %s\npms_profile_tab[PROFILE_APP_IDX].gatts_if: %d\n", pkt, pms_profile_tab[PROFILE_APP_IDX].gatts_if);
     esp_ble_gatts_set_attr_value(pms_ble_handle_table[IDX_CHAR_PMS_VAL], strlen(pkt), (uint8_t*)pkt);
 
