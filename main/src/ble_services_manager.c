@@ -55,7 +55,7 @@
 #define PMS_BLE_PACKAGE_FORMAT		"{\"PM1\":%.2f,\"PM25\":%.2f,\"PM10\":%.2f}"
 //#define PMS_BLE_PACKAGE_FORMAT		"{PM1:%.2f,PM25:%.2f,PM10:%.2f}"
 static uint8_t adv_config_done       = 0;
-
+extern char DEVICE_MAC_COLON[18];
 uint16_t pms_ble_handle_table[HRS_IDX_NB];
 /*
  * Manage devices connected to this BLE hotspot
@@ -73,26 +73,6 @@ static prepare_type_env_t prepare_write_env;
 #define CONFIG_SET_RAW_ADV_DATA
 #ifdef CONFIG_SET_RAW_ADV_DATA
 
-/*
- * ESP32 ADV payload format:
- * AD length + AD type + AD data
- *
- * for device name:
- * size: 0x0B
- * AD type: 0x09
- * name: WAIRU-xxxx
- *
- * */
-static uint8_t raw_adv_data[] = {
-        /* flags */
-        0x02, 0x01, 0x06,
-        /* tx power*/
-        0x02, 0x0a, 0xeb,
-        /* service uuid */
-        0x03, 0x03, 0xFF, 0x00,
-        /* device name */
-        0x0B, 0x09, 'W','A', 'I', 'R', 'U','-','\0', '\0', '\0', '\0'
-};
 static uint8_t raw_scan_rsp_data[] = {
         /* flags */
         0x02, 0x01, 0x06,
@@ -167,7 +147,7 @@ struct gatts_profile_inst {
     uint16_t descr_handle;
     esp_bt_uuid_t descr_uuid;
 };
-
+static void airu_ble_gap_config_adv_raw_data();
 static void gatts_profile_event_handler(esp_gatts_cb_event_t event,
 					esp_gatt_if_t gatts_if, esp_ble_gatts_cb_param_t *param);
 
@@ -180,10 +160,11 @@ static struct gatts_profile_inst pms_profile_tab[PROFILE_NUM] = {
 };
 
 /* Service */
-static const uint16_t GATTS_SERVICE_UUID_TEST      = 0x00FF;
+static const uint16_t GATTS_SERVICE_UUID      = 0x00FF;
 static const uint16_t GATTS_CHAR_UUID_TEST_A       = 0xFF01;
 static const uint16_t GATTS_CHAR_UUID_TEST_B       = 0xFF02;
 static const uint16_t GATTS_CHAR_UUID_TEST_C       = 0xFF03;
+static const uint16_t GATTS_CHAR_UUID_ADDR	       = 0xFF04;
 
 static const uint16_t primary_service_uuid         = ESP_GATT_UUID_PRI_SERVICE;
 static const uint16_t character_declaration_uuid   = ESP_GATT_UUID_CHAR_DECLARE;
@@ -201,7 +182,7 @@ static const esp_gatts_attr_db_t gatt_db[HRS_IDX_NB] =
     // Service Declaration
     [IDX_SVC]        =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&primary_service_uuid, ESP_GATT_PERM_READ,
-      sizeof(uint16_t), sizeof(GATTS_SERVICE_UUID_TEST), (uint8_t *)&GATTS_SERVICE_UUID_TEST}},
+      sizeof(uint16_t), sizeof(GATTS_SERVICE_UUID), (uint8_t *)&GATTS_SERVICE_UUID}},
 
     /* Characteristic Declaration */
     [IDX_CHAR_PMS]     =
@@ -238,6 +219,15 @@ static const esp_gatts_attr_db_t gatt_db[HRS_IDX_NB] =
     {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&GATTS_CHAR_UUID_TEST_C, ESP_GATT_PERM_READ | ESP_GATT_PERM_WRITE,
       PMS_CHAR_VAL_LEN_MAX, sizeof(char_value), (uint8_t *)char_value}},
 
+	/* Characteristic Declaration */
+	[IDX_CHAR_ADDR]     =
+	{{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&character_declaration_uuid, ESP_GATT_PERM_READ,
+	  CHAR_DECLARATION_SIZE, CHAR_DECLARATION_SIZE, (uint8_t *)&char_prop_read}},
+
+	/* Characteristic Value */
+	[IDX_CHAR_ADDR_VAL] =
+    {{ESP_GATT_AUTO_RSP}, {ESP_UUID_LEN_16, (uint8_t *)&GATTS_CHAR_UUID_ADDR, ESP_GATT_PERM_READ,
+      PMS_CHAR_VAL_LEN_MAX, sizeof(DEVICE_MAC_COLON), (uint8_t *)DEVICE_MAC_COLON}},
 };
 
 static void gap_event_handler(esp_gap_ble_cb_event_t event, esp_ble_gap_cb_param_t *param)
@@ -370,17 +360,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                 ESP_LOGE(GATTS_TABLE_TAG, "set device name failed, error code = %x", set_dev_name_ret);
             }
     #ifdef CONFIG_SET_RAW_ADV_DATA
-            // Assign the last 4 wifi mac address to advertisement data - device will be show up as WAIR-xxxx
-            // With xxxx are last 4 characters of mac address
-            raw_adv_data[18] = DEVICE_MAC[8];
-            raw_adv_data[19] = DEVICE_MAC[9];
-            raw_adv_data[20] = DEVICE_MAC[10];
-            raw_adv_data[21] = DEVICE_MAC[11];
-
-            esp_err_t raw_adv_ret = esp_ble_gap_config_adv_data_raw(raw_adv_data, sizeof(raw_adv_data));
-            if (raw_adv_ret){
-                ESP_LOGE(GATTS_TABLE_TAG, "config raw adv data failed, error code = %x ", raw_adv_ret);
-            }
+            airu_ble_gap_config_adv_raw_data();
             adv_config_done |= ADV_CONFIG_FLAG;
             esp_err_t raw_scan_ret = esp_ble_gap_config_scan_rsp_data_raw(raw_scan_rsp_data, sizeof(raw_scan_rsp_data));
             if (raw_scan_ret){
@@ -455,7 +435,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
             		pkt = malloc(48);
             		sprintf(pkt, PMS_BLE_PACKAGE_FORMAT,pm_dat.pm1, pm_dat.pm2_5, pm_dat.pm10);
             		printf("pkt: %s\ngatts_if: %d\n", pkt, gatts_if);
-            		printf("COnnection ID: %d\n", param->write.conn_id);
+            		printf("Connection ID: %d\n", param->write.conn_id);
                     esp_ble_gatts_set_attr_value(pms_ble_handle_table[IDX_CHAR_PMS_VAL], strlen(pkt), (uint8_t*)pkt);
                     esp_ble_gatts_send_indicate(gatts_if, param->write.conn_id, pms_ble_handle_table[IDX_CHAR_PMS_VAL],
                     		strlen(pkt), (uint8_t*)pkt, false);
@@ -653,4 +633,40 @@ void ble_pms_notification(pm_data_t pm_dat)
 					pms_ble_handle_table[IDX_CHAR_PMS_VAL], sizeof(pms_notification), &pms_notification, false);
     	}
     }
+}
+
+void airu_ble_gap_config_adv_raw_data() {
+	/*
+	 * ESP32 ADV payload format:
+	 * AD length + AD type + AD data
+	 *
+	 * for device name:
+	 * size: 0x0B
+	 * AD type: 0x09
+	 * name: WAIRU-xxxx
+	 *
+	 * List of AD type: https://www.bluetooth.com/specifications/assigned-numbers/generic-access-profile/
+	 * */
+	static uint8_t raw_adv_data[] = {
+	        /* flags */
+	        0x02, 0x01, 0x06,
+	        /* tx power*/
+	        0x02, 0x0a, 0xeb,
+	        /* service uuid */
+	        0x03, 0x03, 0xFF, 0x00,
+	        /* device name */
+	        0x0B, 0x09, 'W','A', 'I', 'R', 'U', '-', '\0', '\0', '\0', '\0'
+	};
+    // Assign the last 4 wifi mac address to advertisement data - device will be show up as WAIR-xxxx
+    // With xxxx are last 4 characters of mac address
+	raw_adv_data[18] = DEVICE_MAC[8];
+	raw_adv_data[19] = DEVICE_MAC[9];
+	raw_adv_data[20] = DEVICE_MAC[10];
+	raw_adv_data[21] = DEVICE_MAC[11];
+//	build_airu_ble_adv_raw_data(raw_adv_data, sizeof(raw_adv_data), 18, 0x09, "AA:BB:CC:DD:EE:FF");
+    esp_err_t raw_adv_ret = esp_ble_gap_config_adv_data_raw(raw_adv_data, sizeof(raw_adv_data));
+    if (raw_adv_ret){
+        ESP_LOGE(GATTS_TABLE_TAG, "config raw adv data failed, error code = %x ", raw_adv_ret);
+    }
+
 }

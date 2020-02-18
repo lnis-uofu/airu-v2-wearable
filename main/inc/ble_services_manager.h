@@ -26,7 +26,10 @@ enum
     IDX_CHAR_PMS_REQUEST,
     IDX_CHAR_PMS_REQUEST_VAL,
 
-    HRS_IDX_NB,
+    IDX_CHAR_ADDR,
+    IDX_CHAR_ADDR_VAL,
+
+	HRS_IDX_NB,
 };
 
 void initialize_ble();

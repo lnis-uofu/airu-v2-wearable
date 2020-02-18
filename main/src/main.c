@@ -125,7 +125,7 @@ void data_task()
 		ESP_LOGI(TAG, "MQTT PACKET:\n\r%s", pkt);
 		free(pkt);
 
-		ESP_LOGW(TAG, "Go to deep sleep for 15s");
+//		ESP_LOGW(TAG, "Go to deep sleep for 15s");
 //		esp_sleep_enable_timer_wakeup(15 * 1000000);
 //		esp_deep_sleep_start();
 		// Configure deep sleep timer

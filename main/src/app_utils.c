@@ -23,6 +23,7 @@
 
 const char* TAG = "APP";
 char DEVICE_MAC[13] = { 0 };
+char DEVICE_MAC_COLON[18] = { 0 };
 
 /*
 * @brief	Delete the caller task and loop ad-infinitum
@@ -46,6 +47,7 @@ void APP_Setmac()
 	uint8_t tmp[6];
 	esp_efuse_mac_get_default(tmp);
 	sprintf(DEVICE_MAC, "%02X%02X%02X%02X%02X%02X", tmp[0], tmp[1], tmp[2], tmp[3], tmp[4], tmp[5]);
+	sprintf(DEVICE_MAC_COLON, "%02X:%02X:%02X:%02X:%02X:%02X", tmp[0], tmp[1], tmp[2], tmp[3], tmp[4], tmp[5]);
 }
 
 /*
