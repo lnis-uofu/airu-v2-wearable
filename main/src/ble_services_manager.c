@@ -52,7 +52,7 @@
 #define ADV_CONFIG_FLAG             (1 << 0)
 #define SCAN_RSP_CONFIG_FLAG        (1 << 1)
 
-#define PMS_BLE_PACKAGE_FORMAT		"{\"PM1\":%.2f,\"PM25\":%.2f,\"PM10\":%.2f}"
+#define PMS_BLE_PACKAGE_FORMAT		"{\"PM1\":%.2f,\"PM25\":%.2f,\"PM10\":%.2f,\"DEVICE_ID\":\"%s\"}"
 //#define PMS_BLE_PACKAGE_FORMAT		"{PM1:%.2f,PM25:%.2f,PM10:%.2f}"
 static uint8_t adv_config_done       = 0;
 extern char DEVICE_MAC_COLON[18];
@@ -433,7 +433,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                 	PMS_Poll(&pm_dat);
                 	char *pkt;
             		pkt = malloc(48);
-            		sprintf(pkt, PMS_BLE_PACKAGE_FORMAT,pm_dat.pm1, pm_dat.pm2_5, pm_dat.pm10);
+            		sprintf(pkt, PMS_BLE_PACKAGE_FORMAT,pm_dat.pm1, pm_dat.pm2_5, pm_dat.pm10, DEVICE_MAC);
             		printf("pkt: %s\ngatts_if: %d\n", pkt, gatts_if);
             		printf("Connection ID: %d\n", param->write.conn_id);
                     esp_ble_gatts_set_attr_value(pms_ble_handle_table[IDX_CHAR_PMS_VAL], strlen(pkt), (uint8_t*)pkt);
@@ -613,11 +613,22 @@ void initialize_ble()
     }
 }
 
+/**
+ *	Set PMS package to IDX_CHAR_PMS_VAL service along with WiFi physical address in form of JSON
+ *	Prefer IDX_CHAR_PMS_VAL
+ *	Prefer PMS_BLE_PACKAGE_FORMAT for JSON format
+ *	{
+ *		PM1: 1.00
+ *		PM25: 2.00
+ *		PM10: 3.00
+ *		DEVICE_ID: "AABBCCDD"		// Without colons
+ *	}
+ * */
 void ble_pms_notification(pm_data_t pm_dat)
 {
 	char pkt[PMS_CHAR_VAL_LEN_MAX];
 	// Added double quote for JSON parsing in mobile app
-	sprintf(pkt, PMS_BLE_PACKAGE_FORMAT,pm_dat.pm1, pm_dat.pm2_5, pm_dat.pm10);
+	sprintf(pkt, PMS_BLE_PACKAGE_FORMAT,pm_dat.pm1, pm_dat.pm2_5, pm_dat.pm10, DEVICE_MAC);
 	printf("pkt: %s\npms_profile_tab[PROFILE_APP_IDX].gatts_if: %d\n", pkt, pms_profile_tab[PROFILE_APP_IDX].gatts_if);
     esp_ble_gatts_set_attr_value(pms_ble_handle_table[IDX_CHAR_PMS_VAL], strlen(pkt), (uint8_t*)pkt);
 
