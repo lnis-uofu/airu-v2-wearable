@@ -15,7 +15,7 @@
 #define PM_RXD_PIN   13
 #define PM_TXD_PIN   17
 #define BUF_SIZE     144 // NOTE: Rx_buffer_size should be greater than UART_FIFO_LEN (128 bytes)
-#define PM_PKT_LEN   24
+#define PM_PKT_LEN   32
 #define MAX_PKTS_IN_BUFFER 6
 #define MAX_NUM_PKT  5
 #define TIMEOUT      50

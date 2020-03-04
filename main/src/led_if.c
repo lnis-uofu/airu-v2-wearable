@@ -111,7 +111,7 @@ uint8_t airu_gpio_init()
 	gpio_config(&io_conf);
 
 	// Set default GPIO level to 1
-	gpio_set_level(GPIO_EN_PAM2401, 1);
+	gpio_set_level(GPIO_EN_PAM2401, 0);
 	return ret;
 }
 

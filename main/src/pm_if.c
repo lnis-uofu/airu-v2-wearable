@@ -27,7 +27,6 @@
 #define GPIO_PM_SET		4
 #define GPIO_OUTPUT_PIN_SEL ((1ULL << GPIO_PM_RESET) | (1ULL << GPIO_PM_SET))
 #define PM_TIMER_TIMEOUT_MS 5000
-
 static const char* TAG_PM = "PM";
 
 static void _pm_accum_rst(void);
@@ -202,7 +201,7 @@ static void uart_pm_event_mgr(void *pvParameters)
       switch(event.type) 
       {
         case UART_DATA:
-          if(event.size == 24) 
+          if(event.size == PM_PKT_LEN)
           {
             uart_read_bytes(PM_UART_CH, pm_buf, event.size, portMAX_DELAY);
             get_packet_from_buffer();
